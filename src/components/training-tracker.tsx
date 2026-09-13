@@ -525,6 +525,8 @@ function Login({ onNotice }: { onNotice: (s: string, e?: boolean) => void }) {
   const [password, setPassword] = useState("");
   const [showReset, setShowReset] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
+  const [resetError, setResetError] = useState("");
   const login = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -539,16 +541,30 @@ function Login({ onNotice }: { onNotice: (s: string, e?: boolean) => void }) {
     if (error) onNotice(error.message, true);
   };
   const reset = async () => {
+    setResetMessage("");
+    setResetError("");
     if (!email.includes("@")) {
-      onNotice("Enter your registered email address for recovery.", true);
+      setResetError("Enter your registered email address for recovery.");
       return;
     }
     setBusy(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
-    });
-    setBusy(false);
-    onNotice(error ? error.message : "Password recovery email sent.", !!error);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+      if (error) {
+        setResetError(error.message);
+        onNotice(error.message, true);
+      } else {
+        setResetMessage(
+          "Recovery email sent. Please use only the newest email in your inbox.",
+        );
+      }
+    } catch {
+      setResetError("Unable to send the recovery email. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <div className="login-page">
@@ -643,6 +659,11 @@ function Login({ onNotice }: { onNotice: (s: string, e?: boolean) => void }) {
               >
                 {busy ? "Sending…" : "Send recovery email"}
               </button>
+              {(resetMessage || resetError) && (
+                <div className={`notice ${resetError ? "error" : ""}`} role="status">
+                  {resetError || resetMessage}
+                </div>
+              )}
               <button
                 type="button"
                 className="text-btn"
