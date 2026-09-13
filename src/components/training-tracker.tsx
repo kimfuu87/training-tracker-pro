@@ -35,6 +35,15 @@ import {
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase";
+import {
+  CertificationsModule,
+  FeedbackModule,
+  LearningModule,
+  LmsModule,
+  PlatformModules,
+  RoomsModule,
+  type AdvancedData,
+} from "@/components/advanced-modules";
 
 type Role = "super_admin" | "training_admin" | "hod" | "staff" | "trainer";
 type Access = {
@@ -192,7 +201,13 @@ type View =
   | "audit"
   | "settings"
   | "organizations"
-  | "subscriptions";
+  | "subscriptions"
+  | "learning"
+  | "lms"
+  | "certifications"
+  | "rooms"
+  | "feedback"
+  | "modules";
 
 const supabase = createClient();
 const today = new Date();
@@ -261,6 +276,12 @@ export default function TrainingTracker() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [advanced, setAdvanced] = useState<AdvancedData>({
+    categories: [], programmes: [], tnaCycles: [], tnaNeeds: [],
+    lmsCourses: [], lmsAssignments: [], certificationTypes: [],
+    staffCertifications: [], rooms: [], roomBookings: [], feedback: [],
+    modules: [], organizationModules: [], integrations: [], invitations: [],
+  });
 
   const notify = (text: string, isError = false) => {
     if (isError) setError(text);
@@ -362,6 +383,40 @@ export default function TrainingTracker() {
     setOrganizations((results[11].data || []) as Organization[]);
     setPlans((results[12].data || []) as SubscriptionPlan[]);
     setSubscriptions((results[13].data || []) as Subscription[]);
+    const advancedResults = await Promise.all([
+      supabase.from("training_categories").select("*").order("sort_order"),
+      supabase.from("training_programmes").select("*").order("title"),
+      supabase.from("tna_cycles").select("*").order("training_year", { ascending: false }),
+      supabase.from("tna_manager_needs").select("*").order("created_at", { ascending: false }),
+      supabase.from("lms_courses").select("*").order("updated_at", { ascending: false }),
+      supabase.from("lms_assignments").select("*").order("created_at", { ascending: false }),
+      supabase.from("certification_types").select("*").order("name"),
+      supabase.from("staff_certifications").select("*").order("updated_at", { ascending: false }),
+      supabase.from("rooms").select("*").order("sort_order"),
+      supabase.from("room_bookings").select("*").order("start_at", { ascending: false }),
+      supabase.from("training_feedback").select("*").order("submitted_at", { ascending: false }),
+      supabase.from("modules").select("*").order("name"),
+      supabase.from("organization_modules").select("*").order("created_at"),
+      supabase.from("portal_integrations").select("*").order("display_name"),
+      supabase.from("organization_admin_invitations").select("*").order("invited_at", { ascending: false }),
+    ]);
+    setAdvanced({
+      categories: advancedResults[0].data || [],
+      programmes: advancedResults[1].data || [],
+      tnaCycles: advancedResults[2].data || [],
+      tnaNeeds: advancedResults[3].data || [],
+      lmsCourses: advancedResults[4].data || [],
+      lmsAssignments: advancedResults[5].data || [],
+      certificationTypes: advancedResults[6].data || [],
+      staffCertifications: advancedResults[7].data || [],
+      rooms: advancedResults[8].data || [],
+      roomBookings: advancedResults[9].data || [],
+      feedback: advancedResults[10].data || [],
+      modules: advancedResults[11].data || [],
+      organizationModules: advancedResults[12].data || [],
+      integrations: advancedResults[13].data || [],
+      invitations: advancedResults[14].data || [],
+    });
     setBusy(false);
   }, []);
 
@@ -423,6 +478,11 @@ export default function TrainingTracker() {
     { id: "external", label: "External training", icon: FileBadge, show: true },
     { id: "calendar", label: "Calendar", icon: CalendarDays, show: true },
     { id: "reports", label: "Reports", icon: BarChart3, show: manager },
+    { id: "learning", label: "TNA & programmes", icon: ClipboardList, show: manager },
+    { id: "lms", label: "Learning centre", icon: BookOpenCheck, show: true },
+    { id: "certifications", label: "Certifications", icon: ShieldCheck, show: true },
+    { id: "rooms", label: "Room booking", icon: Building2, show: manager },
+    { id: "feedback", label: "Feedback", icon: CheckCircle2, show: manager },
     { id: "staff", label: "Staff directory", icon: Users, show: manager },
     { id: "access", label: "Access & roles", icon: ShieldCheck, show: admin },
     { id: "audit", label: "Audit trail", icon: ClipboardList, show: admin },
@@ -431,6 +491,12 @@ export default function TrainingTracker() {
       id: "organizations",
       label: "All organisations",
       icon: Building2,
+      show: platformAdmin,
+    },
+    {
+      id: "modules",
+      label: "Modules & access",
+      icon: Settings,
       show: platformAdmin,
     },
     {
@@ -459,6 +525,7 @@ export default function TrainingTracker() {
     organizations,
     plans,
     subscriptions,
+    advanced,
   };
 
   return (
@@ -572,6 +639,12 @@ export default function TrainingTracker() {
           {view === "settings" && <SettingsView {...props} />}
           {view === "organizations" && <PlatformOrganizationsView {...props} />}
           {view === "subscriptions" && <PlatformSubscriptionsView {...props} />}
+          {view === "learning" && <LearningModule {...props} />}
+          {view === "lms" && <LmsModule {...props} />}
+          {view === "certifications" && <CertificationsModule {...props} />}
+          {view === "rooms" && <RoomsModule {...props} />}
+          {view === "feedback" && <FeedbackModule {...props} />}
+          {view === "modules" && <PlatformModules {...props} />}
         </div>
       </main>
       {(message || error) && (
@@ -849,6 +922,7 @@ type ViewProps = {
   organizations: Organization[];
   plans: SubscriptionPlan[];
   subscriptions: Subscription[];
+  advanced: AdvancedData;
 };
 
 function Dashboard(p: ViewProps) {
