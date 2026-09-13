@@ -21,3 +21,4 @@ Before the replacement schema was created, the 345 staff records and database ca
 ## Local setup
 
 Copy `.env.example` to `.env.local`, provide the Supabase project URL and publishable key, then run `npm install` and `npm run dev`.
+- Password recovery supports opening the email link on a different device.
