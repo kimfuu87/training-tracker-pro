@@ -9,6 +9,7 @@ import {
   BookOpenCheck,
   Building2,
   CalendarDays,
+  CreditCard,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -150,6 +151,34 @@ type Audit = {
   entity_id: string | null;
   created_at: string;
 };
+type Organization = {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  portal_name: string | null;
+  trial_ends_at: string | null;
+  created_at: string;
+};
+type SubscriptionPlan = {
+  id: string;
+  code: string;
+  name: string;
+  billing_interval: string;
+  price_myr: number;
+  included_users: number | null;
+  is_active: boolean;
+};
+type Subscription = {
+  id: string;
+  organization_id: string;
+  plan_id: string;
+  status: string;
+  licensed_users: number | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  trial_ends_at: string | null;
+};
 type View =
   | "dashboard"
   | "training"
@@ -161,7 +190,9 @@ type View =
   | "staff"
   | "access"
   | "audit"
-  | "settings";
+  | "settings"
+  | "organizations"
+  | "subscriptions";
 
 const supabase = createClient();
 const today = new Date();
@@ -204,7 +235,8 @@ const esc = (value: unknown) =>
   `"${String(value ?? "").replaceAll('"', '""')}"`;
 
 export default function TrainingTracker() {
-  const [session, setSession] = useState<Session | null>(null);\n  const [recoveringPassword, setRecoveringPassword] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [recoveringPassword, setRecoveringPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [access, setAccess] = useState<Access | null>(null);
   const [view, setView] = useState<View>("dashboard");
@@ -225,6 +257,10 @@ export default function TrainingTracker() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [settings, setSettings] = useState<Setting | null>(null);
   const [audit, setAudit] = useState<Audit[]>([]);
+  const [platformAdmin, setPlatformAdmin] = useState(false);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
 
   const notify = (text: string, isError = false) => {
     if (isError) setError(text);
@@ -237,6 +273,9 @@ export default function TrainingTracker() {
 
   const loadData = useCallback(async (userId: string) => {
     setBusy(true);
+    const platformRes = await supabase.rpc("ttp_is_platform_admin");
+    const isPlatformAdmin = platformRes.data === true;
+    setPlatformAdmin(isPlatformAdmin);
     const accessRes = await supabase
       .from("ttp_user_access")
       .select("*")
@@ -297,6 +336,15 @@ export default function TrainingTracker() {
             .order("created_at", { ascending: false })
             .limit(150)
         : Promise.resolve({ data: [], error: null }),
+      isPlatformAdmin
+        ? supabase.from("organizations").select("id,name,slug,status,portal_name,trial_ends_at,created_at").order("name")
+        : Promise.resolve({ data: [], error: null }),
+      isPlatformAdmin
+        ? supabase.from("subscription_plans").select("*").order("price_myr")
+        : Promise.resolve({ data: [], error: null }),
+      isPlatformAdmin
+        ? supabase.from("subscriptions").select("*").order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
     ]);
     const firstError = results.find((r) => r.error)?.error;
     if (firstError) notify(firstError.message, true);
@@ -311,6 +359,9 @@ export default function TrainingTracker() {
     setHolidays((results[8].data || []) as Holiday[]);
     setSettings((results[9].data || null) as Setting | null);
     setAudit((results[10].data || []) as Audit[]);
+    setOrganizations((results[11].data || []) as Organization[]);
+    setPlans((results[12].data || []) as SubscriptionPlan[]);
+    setSubscriptions((results[13].data || []) as Subscription[]);
     setBusy(false);
   }, []);
 
@@ -322,7 +373,8 @@ export default function TrainingTracker() {
     });
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, next) => {\n      if (event === "PASSWORD_RECOVERY") setRecoveringPassword(true);
+    } = supabase.auth.onAuthStateChange((event, next) => {
+      if (event === "PASSWORD_RECOVERY") setRecoveringPassword(true);
       setSession(next);
       if (next) loadData(next.user.id);
       else setAccess(null);
@@ -343,7 +395,10 @@ export default function TrainingTracker() {
     return (
       <ForcePassword
         userId={session.user.id}
-        onDone={() => {\n          setRecoveringPassword(false);\n          loadData(session.user.id);\n        }}
+        onDone={() => {
+          setRecoveringPassword(false);
+          loadData(session.user.id);
+        }}
         onLogout={() => supabase.auth.signOut()}
       />
     );
@@ -372,6 +427,18 @@ export default function TrainingTracker() {
     { id: "access", label: "Access & roles", icon: ShieldCheck, show: admin },
     { id: "audit", label: "Audit trail", icon: ClipboardList, show: admin },
     { id: "settings", label: "Settings", icon: Settings, show: admin },
+    {
+      id: "organizations",
+      label: "All organisations",
+      icon: Building2,
+      show: platformAdmin,
+    },
+    {
+      id: "subscriptions",
+      label: "Subscriptions",
+      icon: CreditCard,
+      show: platformAdmin,
+    },
   ];
   const displayStaff = staff.find((s) => s.id === access.staff_roster_id);
   const props = {
@@ -388,6 +455,10 @@ export default function TrainingTracker() {
     settings,
     reload: () => loadData(session.user.id),
     notify,
+    platformAdmin,
+    organizations,
+    plans,
+    subscriptions,
   };
 
   return (
@@ -499,6 +570,8 @@ export default function TrainingTracker() {
           {view === "access" && <AccessView {...props} />}{" "}
           {view === "audit" && <AuditView audit={audit} />}{" "}
           {view === "settings" && <SettingsView {...props} />}
+          {view === "organizations" && <PlatformOrganizationsView {...props} />}
+          {view === "subscriptions" && <PlatformSubscriptionsView {...props} />}
         </div>
       </main>
       {(message || error) && (
@@ -772,6 +845,10 @@ type ViewProps = {
   settings: Setting | null;
   reload: () => void;
   notify: (s: string, e?: boolean) => void;
+  platformAdmin: boolean;
+  organizations: Organization[];
+  plans: SubscriptionPlan[];
+  subscriptions: Subscription[];
 };
 
 function Dashboard(p: ViewProps) {
@@ -2582,6 +2659,205 @@ function SettingsView(p: ViewProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+function PlatformOrganizationsView(p: ViewProps) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const createOrganization = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const cleanSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+    const { data, error } = await supabase
+      .from("organizations")
+      .insert({
+        name: name.trim(),
+        slug: cleanSlug,
+        portal_name: name.trim(),
+        status: "trial",
+        trial_ends_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      })
+      .select("id")
+      .single();
+    if (!error && data) {
+      await supabase.from("ttp_settings").insert({ organization_id: data.id });
+      const trialPlan = p.plans.find((plan) => plan.code === "trial");
+      if (trialPlan) {
+        await supabase.from("subscriptions").insert({
+          organization_id: data.id,
+          plan_id: trialPlan.id,
+          status: "trialing",
+          licensed_users: trialPlan.included_users,
+          trial_ends_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+        });
+      }
+      p.notify("Organisation created with a 30-day trial.");
+      setShowCreate(false);
+      setName("");
+      setSlug("");
+      p.reload();
+    } else {
+      p.notify(error?.message || "Unable to create organisation.", true);
+    }
+    setBusy(false);
+  };
+
+  const setStatus = async (org: Organization, status: string) => {
+    const { error } = await supabase
+      .from("organizations")
+      .update({
+        status,
+        suspended_at: status === "suspended" ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", org.id);
+    p.notify(error?.message || `${org.name} changed to ${status}.`, !!error);
+    if (!error) p.reload();
+  };
+
+  return (
+    <>
+      <div className="page-actions">
+        <div>
+          <h2 className="section-title">Platform organisations</h2>
+          <p className="section-sub">
+            Vitala owner control across every subscribing organisation.
+          </p>
+        </div>
+        <button className="primary" onClick={() => setShowCreate(true)}>
+          <Plus /> Add organisation
+        </button>
+      </div>
+      <section className="kpi-grid">
+        <Kpi icon={Building2} tone="teal" label="Organisations" value={p.organizations.length} note="All tenants" />
+        <Kpi icon={CheckCircle2} tone="blue" label="Active" value={p.organizations.filter((o) => o.status === "active").length} note="Paid or approved" />
+        <Kpi icon={Clock3} tone="amber" label="On trial" value={p.organizations.filter((o) => o.status === "trial").length} note="Trial access" />
+        <Kpi icon={AlertTriangle} tone="rose" label="Restricted" value={p.organizations.filter((o) => ["past_due", "suspended", "cancelled"].includes(o.status)).length} note="Action required" />
+      </section>
+      <div className="card table-card">
+        <CardHead title="Organisation directory" action="Platform owner only" />
+        <table>
+          <thead><tr><th>Organisation</th><th>Portal</th><th>Status</th><th>Trial ends</th><th>Created</th><th>Control</th></tr></thead>
+          <tbody>
+            {p.organizations.map((org) => (
+              <tr key={org.id}>
+                <td><strong>{org.name}</strong><small>{org.slug}</small></td>
+                <td>{org.portal_name || "—"}</td>
+                <td><Status value={org.status} /></td>
+                <td>{org.trial_ends_at ? fmtDate(org.trial_ends_at) : "—"}</td>
+                <td>{fmtDate(org.created_at)}</td>
+                <td>
+                  <select value={org.status} onChange={(e) => setStatus(org, e.target.value)}>
+                    <option value="trial">Trial</option>
+                    <option value="active">Active</option>
+                    <option value="past_due">Past due</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {showCreate && (
+        <Modal title="Add organisation" subtitle="Create a separate tenant with a 30-day trial." onClose={() => setShowCreate(false)}>
+          <form className="form-grid" onSubmit={createOrganization}>
+            <label>Organisation name<input required value={name} onChange={(e) => { setName(e.target.value); if (!slug) setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-")); }} /></label>
+            <label>URL slug<input required value={slug} onChange={(e) => setSlug(e.target.value)} /></label>
+            <div className="modal-actions span-2">
+              <button type="button" className="secondary" onClick={() => setShowCreate(false)}>Cancel</button>
+              <button className="primary" disabled={busy}>{busy ? "Creating…" : "Create organisation"}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function PlatformSubscriptionsView(p: ViewProps) {
+  const saveSubscription = async (
+    org: Organization,
+    current: Subscription | undefined,
+    planId: string,
+    status: string,
+  ) => {
+    const plan = p.plans.find((x) => x.id === planId);
+    const payload = {
+      organization_id: org.id,
+      plan_id: planId,
+      status,
+      licensed_users: current?.licensed_users ?? plan?.included_users ?? null,
+      current_period_start: current?.current_period_start || new Date().toISOString(),
+      current_period_end:
+        current?.current_period_end ||
+        new Date(
+          new Date().setFullYear(new Date().getFullYear() + 1),
+        ).toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    const query = current
+      ? supabase.from("subscriptions").update(payload).eq("id", current.id)
+      : supabase.from("subscriptions").insert(payload);
+    const { error } = await query;
+    p.notify(error?.message || `${org.name} subscription updated.`, !!error);
+    if (!error) p.reload();
+  };
+
+  return (
+    <>
+      <div className="page-actions">
+        <div>
+          <h2 className="section-title">Plans & subscriptions</h2>
+          <p className="section-sub">Control plan allocation, licence limits and service status.</p>
+        </div>
+      </div>
+      <div className="card table-card">
+        <CardHead title="Organisation subscriptions" action="Manual billing control" />
+        <table>
+          <thead><tr><th>Organisation</th><th>Plan</th><th>Price</th><th>Licences</th><th>Status</th><th>Period ends</th></tr></thead>
+          <tbody>
+            {p.organizations.map((org) => {
+              const sub = p.subscriptions.find((x) => x.organization_id === org.id);
+              const plan = p.plans.find((x) => x.id === sub?.plan_id);
+              return (
+                <tr key={org.id}>
+                  <td><strong>{org.name}</strong><small>{org.slug}</small></td>
+                  <td>
+                    <select value={sub?.plan_id || ""} onChange={(e) => saveSubscription(org, sub, e.target.value, sub?.status || "active")}>
+                      <option value="" disabled>Select plan</option>
+                      {p.plans.filter((x) => x.is_active).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    </select>
+                  </td>
+                  <td>{plan ? `RM ${Number(plan.price_myr).toFixed(2)} / ${plan.billing_interval}` : "—"}</td>
+                  <td>{sub?.licensed_users ?? plan?.included_users ?? "Unlimited"}</td>
+                  <td>
+                    <select disabled={!sub} value={sub?.status || "trialing"} onChange={(e) => sub && saveSubscription(org, sub, sub.plan_id, e.target.value)}>
+                      <option value="trialing">Trialing</option><option value="active">Active</option><option value="past_due">Past due</option><option value="paused">Paused</option><option value="cancelled">Cancelled</option>
+                    </select>
+                  </td>
+                  <td>{sub?.current_period_end ? fmtDate(sub.current_period_end) : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="card table-card" style={{ marginTop: 18 }}>
+        <CardHead title="Plan catalogue" action="Billing integration not activated" />
+        <table>
+          <thead><tr><th>Plan</th><th>Code</th><th>Price (MYR)</th><th>Interval</th><th>Included users</th><th>Availability</th></tr></thead>
+          <tbody>{p.plans.map((plan) => (
+            <tr key={plan.id}><td><strong>{plan.name}</strong></td><td>{plan.code}</td><td>RM {Number(plan.price_myr).toFixed(2)}</td><td>{plan.billing_interval}</td><td>{plan.included_users ?? "Unlimited"}</td><td><Status value={plan.is_active ? "active" : "disabled"} /></td></tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
