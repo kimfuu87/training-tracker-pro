@@ -204,7 +204,7 @@ const esc = (value: unknown) =>
   `"${String(value ?? "").replaceAll('"', '""')}"`;
 
 export default function TrainingTracker() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<Session | null>(null);\n  const [recoveringPassword, setRecoveringPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [access, setAccess] = useState<Access | null>(null);
   const [view, setView] = useState<View>("dashboard");
@@ -322,7 +322,7 @@ export default function TrainingTracker() {
     });
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, next) => {
+    } = supabase.auth.onAuthStateChange((event, next) => {\n      if (event === "PASSWORD_RECOVERY") setRecoveringPassword(true);
       setSession(next);
       if (next) loadData(next.user.id);
       else setAccess(null);
@@ -339,11 +339,11 @@ export default function TrainingTracker() {
         onLogout={() => supabase.auth.signOut()}
       />
     );
-  if (access.must_change_password)
+  if (recoveringPassword || access.must_change_password)
     return (
       <ForcePassword
         userId={session.user.id}
-        onDone={() => loadData(session.user.id)}
+        onDone={() => {\n          setRecoveringPassword(false);\n          loadData(session.user.id);\n        }}
         onLogout={() => supabase.auth.signOut()}
       />
     );
