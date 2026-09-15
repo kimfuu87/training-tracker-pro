@@ -17,6 +17,7 @@ import {
   ClipboardList,
   Clock3,
   Download,
+  ExternalLink,
   FileBadge,
   GraduationCap,
   KeyRound,
@@ -41,7 +42,6 @@ import {
   LearningModule,
   LmsModule,
   PlatformModules,
-  RoomsModule,
   type AdvancedData,
 } from "@/components/advanced-modules";
 
@@ -168,6 +168,8 @@ type Organization = {
   portal_name: string | null;
   trial_ends_at: string | null;
   created_at: string;
+  primary_color: string | null;
+  secondary_color: string | null;
 };
 type SubscriptionPlan = {
   id: string;
@@ -274,6 +276,7 @@ export default function TrainingTracker() {
   const [audit, setAudit] = useState<Audit[]>([]);
   const [platformAdmin, setPlatformAdmin] = useState(false);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [currentOrganization, setCurrentOrganization] = useState<Organization | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [advanced, setAdvanced] = useState<AdvancedData>({
@@ -313,6 +316,12 @@ export default function TrainingTracker() {
       setBusy(false);
       return;
     }
+    const currentOrgRes = await supabase
+      .from("organizations")
+      .select("id,name,slug,status,portal_name,trial_ends_at,created_at,primary_color,secondary_color")
+      .eq("id", a.organization_id)
+      .maybeSingle();
+    setCurrentOrganization((currentOrgRes.data || null) as Organization | null);
     const results = await Promise.all([
       supabase
         .from("departments")
@@ -358,7 +367,7 @@ export default function TrainingTracker() {
             .limit(150)
         : Promise.resolve({ data: [], error: null }),
       isPlatformAdmin
-        ? supabase.from("organizations").select("id,name,slug,status,portal_name,trial_ends_at,created_at").order("name")
+        ? supabase.from("organizations").select("id,name,slug,status,portal_name,trial_ends_at,created_at,primary_color,secondary_color").order("name")
         : Promise.resolve({ data: [], error: null }),
       isPlatformAdmin
         ? supabase.from("subscription_plans").select("*").order("price_myr")
@@ -526,10 +535,11 @@ export default function TrainingTracker() {
     plans,
     subscriptions,
     advanced,
+    currentOrganization,
   };
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" style={{ "--green": currentOrganization?.primary_color || "#096b61", "--green2": currentOrganization?.secondary_color || "#0f8b7c" } as React.CSSProperties}>
       <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">T</div>
@@ -549,7 +559,7 @@ export default function TrainingTracker() {
           <Building2 />
           <div>
             <span>Organisation</span>
-            <strong>CAH Puchong</strong>
+            <strong>{currentOrganization?.portal_name || currentOrganization?.name || "CAH Puchong"}</strong>
           </div>
         </div>
         <nav>
@@ -642,7 +652,7 @@ export default function TrainingTracker() {
           {view === "learning" && <LearningModule {...props} />}
           {view === "lms" && <LmsModule {...props} />}
           {view === "certifications" && <CertificationsModule {...props} />}
-          {view === "rooms" && <RoomsModule {...props} />}
+          {view === "rooms" && <RoomBookingLauncher {...props} />}
           {view === "feedback" && <FeedbackModule {...props} />}
           {view === "modules" && <PlatformModules {...props} />}
         </div>
@@ -923,6 +933,7 @@ type ViewProps = {
   plans: SubscriptionPlan[];
   subscriptions: Subscription[];
   advanced: AdvancedData;
+  currentOrganization: Organization | null;
 };
 
 function Dashboard(p: ViewProps) {
@@ -1014,6 +1025,7 @@ function Dashboard(p: ViewProps) {
           note="Awaiting verification"
         />
       </section>
+      <TrainingTrend {...p} />
       <section className="split-grid">
         <div className="card">
           <CardHead title="Upcoming training" action="View schedule" />
@@ -1103,6 +1115,53 @@ function Kpi({
         <p>{note}</p>
       </div>
     </div>
+  );
+}
+
+function TrainingTrend(p: ViewProps) {
+  const months = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(today.getFullYear(), today.getMonth() - (5 - index), 1);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const internal = p.trainings.filter((t) => t.training_type === "internal" && t.start_at.startsWith(key)).length;
+    const external = p.external.filter((e) => e.status === "approved" && e.start_date.startsWith(key)).length;
+    const hours = p.ledger.filter((l) => l.training_date.startsWith(key)).reduce((sum, l) => sum + Number(l.hours), 0);
+    return { key, label: date.toLocaleString("en", { month: "short" }), internal, external, hours };
+  });
+  const maximum = Math.max(1, ...months.flatMap((m) => [m.internal, m.external]));
+  return (
+    <section className="card trend-card">
+      <CardHead title="Six-month training activity" action="Internal vs verified external" />
+      <div className="trend-content">
+        <div className="trend-legend"><span><i className="trend-dot internal" />Internal</span><span><i className="trend-dot external" />External</span></div>
+        <div className="trend-chart">
+          {months.map((month) => (
+            <div className="trend-month" key={month.key}>
+              <div className="trend-bars">
+                <i className="internal" title={`${month.internal} internal`} style={{ height: `${Math.max(5, month.internal / maximum * 100)}%` }} />
+                <i className="external" title={`${month.external} external`} style={{ height: `${Math.max(5, month.external / maximum * 100)}%` }} />
+              </div>
+              <strong>{month.label}</strong>
+              <small>{month.hours} credited hrs</small>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RoomBookingLauncher(p: ViewProps) {
+  const url = p.settings?.room_booking_url;
+  return (
+    <section className="card room-launcher">
+      <div className="room-launcher-icon"><Building2 /></div>
+      <div>
+        <span className="eyebrow green">CONNECTED APPLICATION</span>
+        <h2>CAH Puchong Room Booking</h2>
+        <p>Open the separate room-booking system to check availability and reserve a room.</p>
+      </div>
+      {url ? <a className="primary" href={url} target="_blank" rel="noreferrer">Open Room Booking <ExternalLink /></a> : <button className="primary" disabled>Room Booking URL not configured</button>}
+    </section>
   );
 }
 function CardHead({ title, action }: { title: string; action?: string }) {
@@ -2659,11 +2718,13 @@ function SettingsView(p: ViewProps) {
     String(p.settings?.annual_target_hours || 18),
   );
   const [room, setRoom] = useState(p.settings?.room_booking_url || "");
+  const [primary, setPrimary] = useState(p.currentOrganization?.primary_color || "#096b61");
+  const [secondary, setSecondary] = useState(p.currentOrganization?.secondary_color || "#0f8b7c");
   const [busy, setBusy] = useState(false);
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const { error } = await supabase
+    const { error: settingsError } = await supabase
       .from("ttp_settings")
       .update({
         annual_target_hours: Number(target),
@@ -2672,6 +2733,10 @@ function SettingsView(p: ViewProps) {
         updated_by: p.access.user_id,
       })
       .eq("organization_id", p.access.organization_id);
+    const brandResult = p.access.role === "super_admin"
+      ? await supabase.rpc("ttp_update_organisation_brand", { p_primary: primary, p_secondary: secondary })
+      : { error: null };
+    const error = settingsError || brandResult.error;
     setBusy(false);
     p.notify(error?.message || "Settings updated.", !!error);
     if (!error) p.reload();
@@ -2706,6 +2771,16 @@ function SettingsView(p: ViewProps) {
               disabled
             />
           </label>
+          {p.access.role === "super_admin" && (
+            <fieldset>
+              <legend>Organisation branding</legend>
+              <div className="brand-colors">
+                <label>Primary colour<input type="color" value={primary} onChange={(e) => setPrimary(e.target.value)} /></label>
+                <label>Secondary colour<input type="color" value={secondary} onChange={(e) => setSecondary(e.target.value)} /></label>
+              </div>
+              <small>Updates navigation, buttons, highlights and dashboard accents for this organisation.</small>
+            </fieldset>
+          )}
           <button className="primary" disabled={busy}>
             {busy ? "Saving…" : "Save settings"}
           </button>
