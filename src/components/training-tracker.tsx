@@ -267,6 +267,7 @@ export default function TrainingTracker() {
   const [access, setAccess] = useState<Access | null>(null);
   const [view, setView] = useState<View>("dashboard");
   const [mobileNav, setMobileNav] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -639,9 +640,11 @@ export default function TrainingTracker() {
             >
               <RefreshCw className={busy ? "spin" : ""} />
             </button>
-            <button className="icon-btn">
+            <button className="icon-btn notification-button" onClick={() => setShowNotifications((open) => !open)} aria-label="Notifications" aria-expanded={showNotifications}>
               <Bell />
+              {(pendingNotificationCount(nominations, external, advanced) > 0) && <b>{pendingNotificationCount(nominations, external, advanced)}</b>}
             </button>
+            {showNotifications && <NotificationPanel nominations={nominations} external={external} advanced={advanced} onClose={() => setShowNotifications(false)} />}
           </div>
         </header>
         <div className="content">
@@ -672,6 +675,36 @@ export default function TrainingTracker() {
           <span>{error || message}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function pendingNotificationCount(nominations: Nomination[], external: ExternalSubmission[], advanced: AdvancedData) {
+  return nominations.filter((n) => n.status === "pending").length
+    + external.filter((e) => e.status === "pending").length
+    + advanced.staffCertifications.filter((row) => String(row.status) === "pending").length
+    + advanced.lmsAssignments.filter((row) => String(row.due_date) && new Date(String(row.due_date)) < today && String(row.status) !== "completed").length;
+}
+
+function NotificationPanel({ nominations, external, advanced, onClose }: {
+  nominations: Nomination[];
+  external: ExternalSubmission[];
+  advanced: AdvancedData;
+  onClose: () => void;
+}) {
+  const items = [
+    { label: "Pending nominations", count: nominations.filter((n) => n.status === "pending").length },
+    { label: "External certificates to verify", count: external.filter((e) => e.status === "pending").length },
+    { label: "Certification evidence to verify", count: advanced.staffCertifications.filter((row) => String(row.status) === "pending").length },
+    { label: "Overdue learning assignments", count: advanced.lmsAssignments.filter((row) => String(row.due_date) && new Date(String(row.due_date)) < today && String(row.status) !== "completed").length },
+  ].filter((item) => item.count > 0);
+  return (
+    <div className="notification-panel card" role="dialog" aria-label="Pending actions">
+      <div className="card-head"><h3>Pending actions</h3><button className="icon-btn" onClick={onClose} aria-label="Close notifications"><X /></button></div>
+      <div className="action-list">
+        {items.map((item) => <div className="action-item" key={item.label}><span>{item.label}</span><b>{item.count}</b></div>)}
+        {!items.length && <div className="empty"><CheckCircle2 /><p>You are all caught up.</p></div>}
+      </div>
     </div>
   );
 }
@@ -2956,6 +2989,10 @@ function PlatformOrganizationsView(p: ViewProps) {
 }
 
 function PlatformSubscriptionsView(p: ViewProps) {
+  const savePlan = async (plan: SubscriptionPlan, price: number, users: number | null, active: boolean) => {
+    const { error } = await supabase.from("subscription_plans").update({ price_myr: price, included_users: users, is_active: active }).eq("id", plan.id);
+    p.notify(error?.message || `${plan.name} plan updated.`, !!error); if (!error) p.reload();
+  };
   const saveSubscription = async (
     org: Organization,
     current: Subscription | undefined,
@@ -3024,16 +3061,22 @@ function PlatformSubscriptionsView(p: ViewProps) {
         </table>
       </div>
       <div className="card table-card" style={{ marginTop: 18 }}>
-        <CardHead title="Plan catalogue" action="Billing integration not activated" />
+        <CardHead title="Plan catalogue" action="Platform owner controls" />
         <table>
-          <thead><tr><th>Plan</th><th>Code</th><th>Price (MYR)</th><th>Interval</th><th>Included users</th><th>Availability</th></tr></thead>
-          <tbody>{p.plans.map((plan) => (
-            <tr key={plan.id}><td><strong>{plan.name}</strong></td><td>{plan.code}</td><td>RM {Number(plan.price_myr).toFixed(2)}</td><td>{plan.billing_interval}</td><td>{plan.included_users ?? "Unlimited"}</td><td><Status value={plan.is_active ? "active" : "disabled"} /></td></tr>
-          ))}</tbody>
+          <thead><tr><th>Plan</th><th>Code</th><th>Price (MYR)</th><th>Interval</th><th>Included users</th><th>Availability</th><th>Action</th></tr></thead>
+          <tbody>{p.plans.map((plan) => <PlanEditor key={plan.id} plan={plan} onSave={savePlan} />)}</tbody>
         </table>
       </div>
     </>
   );
+}
+
+function PlanEditor({ plan, onSave }: { plan: SubscriptionPlan; onSave: (plan: SubscriptionPlan, price: number, users: number | null, active: boolean) => Promise<void> }) {
+  const [price, setPrice] = useState(Number(plan.price_myr));
+  const [users, setUsers] = useState(plan.included_users == null ? "" : String(plan.included_users));
+  const [active, setActive] = useState(plan.is_active);
+  const [busy, setBusy] = useState(false);
+  return <tr><td><strong>{plan.name}</strong></td><td>{plan.code}</td><td><input aria-label={`${plan.name} price`} type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(Number(e.target.value))} /></td><td>{plan.billing_interval}</td><td><input aria-label={`${plan.name} included users`} type="number" min="1" placeholder="Unlimited" value={users} onChange={(e) => setUsers(e.target.value)} /></td><td><label className="inline-toggle"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Active</label></td><td><button className="primary small" disabled={busy} onClick={async () => { setBusy(true); await onSave(plan, price, users ? Number(users) : null, active); setBusy(false); }}>{busy ? "Saving…" : "Save"}</button></td></tr>;
 }
 
 function Modal({
