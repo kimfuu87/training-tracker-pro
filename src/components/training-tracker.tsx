@@ -251,6 +251,15 @@ const hoursFor = (d: string) =>
 const esc = (value: unknown) =>
   `"${String(value ?? "").replaceAll('"', '""')}"`;
 
+const themePresets = [
+  { name: "Columbia Teal", primary: "#096b61", secondary: "#0f8b7c" },
+  { name: "Clinical Blue", primary: "#155e75", secondary: "#0284c7" },
+  { name: "Executive Navy", primary: "#1e3a5f", secondary: "#b7892d" },
+  { name: "Emerald Care", primary: "#166534", secondary: "#16a34a" },
+  { name: "Burgundy", primary: "#7f1d1d", secondary: "#be123c" },
+  { name: "Modern Purple", primary: "#5b21b6", secondary: "#7c3aed" },
+] as const;
+
 export default function TrainingTracker() {
   const [session, setSession] = useState<Session | null>(null);
   const [recoveringPassword, setRecoveringPassword] = useState(false);
@@ -2773,12 +2782,29 @@ function SettingsView(p: ViewProps) {
           </label>
           {p.access.role === "super_admin" && (
             <fieldset>
-              <legend>Organisation branding</legend>
-              <div className="brand-colors">
-                <label>Primary colour<input type="color" value={primary} onChange={(e) => setPrimary(e.target.value)} /></label>
-                <label>Secondary colour<input type="color" value={secondary} onChange={(e) => setSecondary(e.target.value)} /></label>
+              <legend>Interface theme</legend>
+              <div className="theme-presets">
+                {themePresets.map((theme) => {
+                  const selected = primary === theme.primary && secondary === theme.secondary;
+                  return (
+                    <button
+                      type="button"
+                      key={theme.name}
+                      className={`theme-option ${selected ? "selected" : ""}`}
+                      onClick={() => { setPrimary(theme.primary); setSecondary(theme.secondary); }}
+                      aria-pressed={selected}
+                    >
+                      <span className="theme-swatches">
+                        <i style={{ background: theme.primary }} />
+                        <i style={{ background: theme.secondary }} />
+                      </span>
+                      <strong>{theme.name}</strong>
+                      <small>{selected ? "Selected" : "Choose theme"}</small>
+                    </button>
+                  );
+                })}
               </div>
-              <small>Updates navigation, buttons, highlights and dashboard accents for this organisation.</small>
+              <small>Select one professionally matched colour theme. It will update the navigation, buttons, highlights and dashboard accents.</small>
             </fieldset>
           )}
           <button className="primary" disabled={busy}>
