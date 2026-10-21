@@ -2541,6 +2541,45 @@ function AccessView(p: ViewProps) {
   const [deptIds, setDeptIds] = useState<string[]>([]);
   const [wide, setWide] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState("");
+
+  const activateAllStaffIds = async () => {
+    setBulkBusy(true);
+    setBulkProgress("Preparing staff accounts…");
+    let totalCreated = 0;
+    let remaining = 1;
+
+    try {
+      for (let batch = 1; batch <= 20 && remaining > 0; batch += 1) {
+        const { data, error } = await supabase.functions.invoke("ttpro-account-admin", {
+          body: {
+            action: "provision_batch",
+            organization_id: p.access.organization_id,
+            initial_password: "12345Ab!",
+            batch_size: 30,
+          },
+        });
+        if (error || data?.error) throw new Error(error?.message || data?.error);
+        totalCreated += Number(data?.created || 0);
+        remaining = Number(data?.remaining || 0);
+        setBulkProgress(`${totalCreated} activated · ${remaining} remaining`);
+        if (Number(data?.created || 0) === 0 && remaining > 0) {
+          throw new Error("Activation stopped because no further accounts could be created.");
+        }
+      }
+
+      if (remaining > 0) throw new Error(`${remaining} accounts remain unactivated.`);
+      p.notify(`${totalCreated} staff accounts activated. Password change is required at first login.`);
+      setBulkProgress(`${totalCreated} accounts activated successfully`);
+      p.reload();
+    } catch (err) {
+      p.notify(err instanceof Error ? err.message : "Bulk activation failed.", true);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const provision = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -2573,6 +2612,23 @@ function AccessView(p: ViewProps) {
     <div className="two-column">
       <div className="card">
         <CardHead title="Provision staff access" />
+        <div className="secure-note larger" style={{ marginBottom: 16 }}>
+          <Users />
+          <span>
+            <strong>Activate all CAH Puchong staff IDs</strong>
+            <small>Creates missing accounts in secured batches. Every account must replace the temporary password on first login.</small>
+            <button
+              type="button"
+              className="primary"
+              disabled={bulkBusy}
+              onClick={activateAllStaffIds}
+              style={{ marginTop: 10 }}
+            >
+              {bulkBusy ? "Activating accounts…" : "Activate all staff IDs"}
+            </button>
+            {bulkProgress && <small style={{ marginTop: 8 }}>{bulkProgress}</small>}
+          </span>
+        </div>
         <form className="stack-form" onSubmit={provision}>
           <label>
             Staff
